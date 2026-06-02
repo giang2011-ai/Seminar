@@ -2,12 +2,13 @@
 
 ## Mục tiêu đề tài
 
-Dự án này được thực hiện nhằm tìm hiểu và so sánh hai kiến trúc học sâu phổ biến trong lĩnh vực thị giác máy tính:
+Dự án này tìm hiểu và so sánh ba kiến trúc học sâu trong lĩnh vực thị giác máy tính:
 
-- **CNN (Convolutional Neural Network)**: mạng nơ-ron tích chập, khai thác tốt đặc trưng cục bộ của ảnh thông qua các bộ lọc convolution.
-- **ViT (Vision Transformer)**: mô hình Transformer cho ảnh, chia ảnh thành các patch và học quan hệ giữa các vùng ảnh bằng cơ chế self-attention.
+- **ResNet-50**: mạng tích chập sâu với skip connection, cân bằng giữa độ chính xác và chi phí tính toán.
+- **ConvNeXt-Tiny**: kiến trúc CNN hiện đại (2022) học theo thiết kế của Transformer nhưng vẫn dùng convolution.
+- **ViT-Tiny/16 (Vision Transformer)**: chia ảnh thành patch và học quan hệ toàn cục qua self-attention.
 
-Trọng tâm của đề tài là phân tích sự khác biệt giữa CNN và ViT về cách xử lý ảnh, kiến trúc mô hình, yêu cầu dữ liệu, ưu điểm, hạn chế và khả năng ứng dụng trong các bài toán phân loại ảnh.
+Trọng tâm là so sánh CNN (ResNet-50, ConvNeXt-Tiny) với ViT về kiến trúc, yêu cầu dữ liệu, tốc độ, tài nguyên và độ chính xác trong điều kiện **train from scratch trên dataset nhỏ/vừa**.
 
 ## Thông tin thực hiện
 
@@ -21,96 +22,74 @@ Trọng tâm của đề tài là phân tích sự khác biệt giữa CNN và V
 
 ```text
 Seminar/
-├── outputs/              # Lưu kết quả chạy mô hình, biểu đồ, ảnh hoặc file đầu ra
-├── src/                  # Chứa mã nguồn hỗ trợ xử lý dữ liệu, mô hình và tiện ích
-├── .gitattributes
-├── .gitignore
-├── main.ipynb            # Notebook chính để thực nghiệm và so sánh CNN với ViT
-├── README.md             # Tài liệu mô tả đề tài
-└── requirements.txt      # Danh sách thư viện cần cài đặt
+├── outputs/              # Checkpoint, biểu đồ, file đầu ra
+├── src/
+│   ├── __init__.py
+│   ├── dataset.py        # build_dataloaders (không có HorizontalFlip)
+│   ├── train.py          # train_model (lưu best + last checkpoint)
+│   ├── evaluate.py       # evaluate_model, Sensitivity/Specificity
+│   ├── utils.py          # set_seed, plot_*, save_config, print_hardware_info
+│   └── models/
+│       ├── __init__.py   # build_model factory
+│       ├── resnet.py     # ResNet-50 tự cài đặt
+│       ├── convnext.py   # ConvNeXt-Tiny tự cài đặt
+│       └── vit.py        # ViT-Tiny/16 tự cài đặt
+├── main.ipynb            # Notebook chính
+├── README.md
+└── requirements.txt
 ```
 
-## Tổng quan về CNN
+## Tổng quan 3 mô hình
 
-CNN là kiến trúc mạng nơ-ron được thiết kế phù hợp với dữ liệu ảnh. Mô hình sử dụng các lớp tích chập để quét qua ảnh, từ đó học các đặc trưng như cạnh, góc, texture và các hình dạng phức tạp hơn ở những tầng sâu.
+### ResNet-50
 
-Đặc điểm chính của CNN:
+Kiến trúc ResNet với Bottleneck block (1×1 → 3×3 → 1×1) và skip connection. Tự cài đặt theo paper gốc He et al. 2016. ~25M params.
 
-- Khai thác tốt thông tin cục bộ giữa các pixel gần nhau.
-- Có inductive bias mạnh đối với dữ liệu ảnh, đặc biệt là tính cục bộ và tính dịch chuyển.
-- Thường hoạt động tốt trên tập dữ liệu nhỏ hoặc vừa.
-- Có nhiều kiến trúc nổi tiếng như LeNet, AlexNet, VGG, ResNet, DenseNet và EfficientNet.
+### ConvNeXt-Tiny
 
-## Tổng quan về Vision Transformer
+CNN hiện đại (Liu et al. 2022) với Inverted Bottleneck, DWConv 7×7, LayerNorm, GELU và LayerScale. Hiệu quả hơn ResNet với kiến trúc đơn giản hơn. ~28M params.
 
-Vision Transformer đưa kiến trúc Transformer từ xử lý ngôn ngữ tự nhiên sang xử lý ảnh. Thay vì dùng các kernel tích chập, ViT chia ảnh thành nhiều patch nhỏ, biến mỗi patch thành một vector embedding, thêm thông tin vị trí và đưa vào Transformer Encoder.
+### ViT-Tiny/16
 
-Đặc điểm chính của ViT:
+Vision Transformer với patch_size=16, embed_dim=192, 12 lớp encoder, 3 heads. ~5.7M params nhưng yêu cầu nhiều dữ liệu hơn để học tốt.
 
-- Xem ảnh như một chuỗi các patch tương tự chuỗi token trong NLP.
-- Dùng self-attention để học quan hệ toàn cục giữa các vùng ảnh.
-- Có khả năng mở rộng tốt khi dữ liệu và tài nguyên tính toán đủ lớn.
-- Thường đạt hiệu quả cao khi sử dụng mô hình đã được tiền huấn luyện.
+## Bảng so sánh
 
-## Bảng so sánh CNN và ViT
+| Tiêu chí | ResNet-50 | ConvNeXt-Tiny | ViT-Tiny/16 |
+|---|---|---|---|
+| Cơ chế | Bottleneck + Skip | Inverted Bottleneck + DWConv | Patch Embedding + Self-Attention |
+| Params (approx) | ~25M | ~28M | ~5.7M |
+| Inductive bias | Mạnh | Mạnh | Yếu |
+| Nhu cầu dữ liệu | Nhỏ/vừa | Nhỏ/vừa | Lớn hoặc pre-trained |
+| Receptive field | Cục bộ → toàn cục (theo chiều sâu) | Rộng hơn (DWConv 7×7) | Toàn cục ngay từ đầu |
+| Tốc độ inference | Nhanh | Nhanh | Chậm hơn (attention O(N²)) |
+| VRAM | Vừa | Vừa | Cao hơn |
 
-| Tiêu chí | CNN | ViT |
-|---|---|---|
-| Cách biểu diễn ảnh | Ảnh được xử lý trực tiếp qua các lớp tích chập | Ảnh được chia thành các patch rồi chuyển thành embedding |
-| Cơ chế chính | Convolution, pooling, fully connected | Patch embedding, positional embedding, self-attention, MLP |
-| Phạm vi học đặc trưng | Mạnh về đặc trưng cục bộ | Mạnh về quan hệ toàn cục giữa các patch |
-| Inductive bias | Mạnh, phù hợp tự nhiên với ảnh | Yếu hơn, cần học nhiều hơn từ dữ liệu |
-| Nhu cầu dữ liệu | Hiệu quả với dữ liệu nhỏ và vừa | Thường cần dữ liệu lớn hoặc pre-trained model |
-| Chi phí tính toán | Thường nhẹ hơn ở các mô hình cơ bản | Có thể tốn bộ nhớ và thời gian hơn do self-attention |
-| Khả năng mở rộng | Tốt, nhưng phụ thuộc nhiều vào thiết kế mạng | Rất tốt khi tăng kích thước mô hình và dữ liệu |
-| Khả năng giải thích | Có thể quan sát feature map hoặc activation map | Có thể phân tích attention map |
-| Ứng dụng phù hợp | Phân loại ảnh, nhận diện vật thể, y tế, hệ thống tài nguyên hạn chế | Bài toán dữ liệu lớn, mô hình hiện đại, bài toán cần học quan hệ toàn cục |
+## Lưu ý Y khoa – Không dùng RandomHorizontalFlip
 
-## Ưu điểm và hạn chế
+**`src/dataset.py` không áp dụng `RandomHorizontalFlip`.**
 
-### CNN
+Trong ảnh y tế (X-quang ngực, MRI, siêu âm tim), lật ngang làm thay đổi tính đối xứng giải phẫu (tim nằm trái, gan nằm phải). Ảnh lật ngang là một mẫu không tồn tại trong thực tế lâm sàng và khiến mô hình học phân phối sai. Augmentation an toàn được dùng: `RandomResizedCrop`, `RandomRotation(±10°)`, `ColorJitter`.
 
-Ưu điểm:
+## Kết luận và Dự báo kết quả
 
-- Phù hợp tự nhiên với dữ liệu ảnh.
-- Dễ huấn luyện hơn khi dữ liệu không quá lớn.
-- Chi phí tính toán thường hợp lý.
-- Có nhiều mô hình nền tảng đã được kiểm chứng trong thực tế.
+Với điều kiện **train from scratch trên dataset nhỏ/vừa** (không có pre-trained weights):
 
-Hạn chế:
+- **ResNet-50** và **ConvNeXt-Tiny** được kỳ vọng vượt trội so với ViT nhờ **inductive bias mạnh** phù hợp với dữ liệu ảnh. Convolution tự nhiên khai thác tính cục bộ và tính dịch chuyển của ảnh, không cần học từ đầu như ViT.
+- **ViT** có inductive bias yếu hơn — không có giả định gì về cấu trúc không gian. Để ViT đạt hiệu quả tương đương, cần **hàng chục nghìn ảnh** hoặc phải fine-tune từ checkpoint đã pre-train trên ImageNet-21k. Trong thực nghiệm này, ViT khả năng cao có accuracy và F1 thấp hơn 2 mô hình CNN.
+- **ConvNeXt-Tiny** có thể nhỉnh hơn ResNet-50 nhờ thiết kế hiện đại hơn (DWConv 7×7, LayerScale, Stochastic Depth) và receptive field rộng hơn mà vẫn giữ được inductive bias của CNN.
 
-- Khả năng học quan hệ xa trong ảnh phụ thuộc vào độ sâu mạng và receptive field.
-- Có thể bỏ sót thông tin toàn cục nếu kiến trúc chưa đủ phù hợp.
-- Một số mô hình CNN sâu có nhiều tham số và cần kỹ thuật tối ưu tốt.
+**Lựa chọn thực tế:** Với bài toán y tế dataset hạn chế, ưu tiên ConvNeXt hoặc ResNet. ViT chỉ phát huy lợi thế khi có pre-trained model hoặc dataset lớn.
 
-### ViT
+## Tiêu chí đánh giá
 
-Ưu điểm:
-
-- Học được quan hệ toàn cục giữa các vùng ảnh thông qua self-attention.
-- Có khả năng mở rộng tốt trên tập dữ liệu lớn.
-- Linh hoạt, kế thừa nhiều thành tựu của Transformer.
-- Hiệu quả cao khi fine-tune từ mô hình tiền huấn luyện.
-
-Hạn chế:
-
-- Cần nhiều dữ liệu nếu huấn luyện từ đầu.
-- Chi phí tính toán và bộ nhớ có thể cao.
-- Kém lợi thế hơn CNN trên dataset nhỏ nếu không có pre-training hoặc augmentation tốt.
-
-## Quy trình thực nghiệm đề xuất
-
-1. Chuẩn bị dữ liệu ảnh và tiền xử lý dữ liệu.
-2. Xây dựng hoặc sử dụng mô hình CNN làm baseline.
-3. Xây dựng hoặc fine-tune mô hình Vision Transformer.
-4. Huấn luyện hai mô hình trong điều kiện thực nghiệm tương đương.
-5. Đánh giá bằng các chỉ số như accuracy, precision, recall, F1-score và confusion matrix.
-6. So sánh kết quả về độ chính xác, thời gian huấn luyện, thời gian suy luận và tài nguyên sử dụng.
-7. Lưu kết quả, biểu đồ hoặc hình ảnh minh họa vào thư mục `outputs/`.
+- **Accuracy**, **Precision**, **Recall**, **F1-score** (macro)
+- **Sensitivity** (Độ nhạy) = TP / (TP + FN) — quan trọng trong y tế để không bỏ sót ca bệnh
+- **Specificity** (Độ đặc hiệu) = TN / (TN + FP) — tránh chẩn đoán nhầm
+- **Confusion Matrix**, **ROC-AUC**
+- **Training time**, **Inference time** (ms/ảnh), **Model size** (params), **VRAM** (MB)
 
 ## Cài đặt
-
-Cài đặt các thư viện cần thiết:
 
 ```bash
 pip install -r requirements.txt
@@ -118,29 +97,8 @@ pip install -r requirements.txt
 
 ## Cách chạy
 
-Mở notebook chính:
-
 ```bash
 jupyter notebook main.ipynb
 ```
 
-Sau đó chạy lần lượt các cell trong `main.ipynb` để thực hiện quá trình chuẩn bị dữ liệu, huấn luyện, đánh giá và so sánh mô hình CNN với ViT.
-
-## Tiêu chí đánh giá
-
-Các tiêu chí nên sử dụng khi so sánh hai mô hình:
-
-- **Accuracy**: tỷ lệ dự đoán đúng trên toàn bộ tập kiểm tra.
-- **Precision**: mức độ chính xác của các mẫu được dự đoán thuộc một lớp.
-- **Recall**: khả năng tìm đúng các mẫu thực sự thuộc một lớp.
-- **F1-score**: trung bình điều hòa giữa precision và recall.
-- **Confusion matrix**: ma trận thể hiện số lượng dự đoán đúng và sai theo từng lớp.
-- **Training time**: thời gian huấn luyện.
-- **Inference time**: thời gian dự đoán.
-- **Model size**: số lượng tham số hoặc dung lượng mô hình.
-
-## Kết luận
-
-CNN và ViT đều là những kiến trúc quan trọng trong thị giác máy tính. CNN có lợi thế khi dữ liệu hạn chế, chi phí tính toán cần tối ưu và bài toán yêu cầu mô hình ổn định, dễ triển khai. ViT có lợi thế khi có dữ liệu lớn hoặc sử dụng mô hình tiền huấn luyện, đặc biệt trong các bài toán cần học quan hệ toàn cục giữa nhiều vùng ảnh.
-
-Việc lựa chọn CNN hay ViT phụ thuộc vào kích thước dữ liệu, tài nguyên tính toán, yêu cầu độ chính xác và mục tiêu triển khai thực tế của bài toán.
+Chạy lần lượt các cell. Kết quả lưu vào `outputs/`.

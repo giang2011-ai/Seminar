@@ -1,14 +1,11 @@
-"""
-Model factory for ResNet-50, ConvNeXt-Tiny and ViT.
-"""
+# src/models/__init__.py  (re-export từ __init__.py gốc ở root)
+from src.models.convnext import ConvNeXtTiny
+from src.models.resnet   import ResNet50Classifier
+from src.models.vit      import VisionTransformerClassifier
 
-from __future__ import annotations
+__all__ = ["ConvNeXtTiny", "ResNet50Classifier", "VisionTransformerClassifier", "build_model"]
 
 import torch.nn as nn
-
-from src.models.convnext import ConvNeXtTiny
-from src.models.resnet import ResNet50Classifier
-from src.models.vit import VisionTransformerClassifier
 
 SUPPORTED_MODELS = {"resnet50", "convnext", "vit"}
 
@@ -23,10 +20,7 @@ def build_model(
     name = model_name.lower()
 
     if name == "resnet50":
-        model = ResNet50Classifier(
-            n_classes=n_classes,
-            dropout=dropout,
-        )
+        model = ResNet50Classifier(n_classes=n_classes, dropout=dropout)
         print(f"[Model] ResNet-50 | n_classes={n_classes}")
 
     elif name == "convnext":
@@ -35,10 +29,7 @@ def build_model(
             dropout=dropout,
             drop_path_rate=drop_path_rate,
         )
-        print(
-            f"[Model] ConvNeXt-Tiny | n_classes={n_classes} "
-            f"| drop_path={drop_path_rate}"
-        )
+        print(f"[Model] ConvNeXt-Tiny | n_classes={n_classes} | drop_path={drop_path_rate}")
 
     elif name == "vit":
         model = VisionTransformerClassifier(
@@ -49,11 +40,9 @@ def build_model(
         print(f"[Model] ViT-Tiny/16 | n_classes={n_classes} | img_size={img_size}")
 
     else:
-        raise ValueError(
-            f"model_name must be one of {SUPPORTED_MODELS}, got: '{model_name}'"
-        )
+        raise ValueError(f"model_name must be one of {SUPPORTED_MODELS}, got: '{model_name}'")
 
-    total = sum(p.numel() for p in model.parameters())
+    total     = sum(p.numel() for p in model.parameters())
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"[Model] Total params: {total:,} | Trainable: {trainable:,}")
 

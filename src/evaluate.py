@@ -1,222 +1,222 @@
-﻿"""
-evaluate.py
------------
-ÄÃ¡nh giÃ¡ mÃ´ hÃ¬nh trÃªn táº­p test vá»›i cÃ¡c thang Ä‘o:
-  - Accuracy, F1 (Macro & Weighted), Precision, Recall
-  - AUC-ROC (OvR, macro)
+# -*- coding: utf-8 -*-
+"""
+src/evaluate.py
+---------------
+Đánh giá mô hình trên tập test.
+
+Metrics:
+  - Accuracy, Precision, Recall, F1-score (macro)
+  - Sensitivity (= Recall per class)
+  - Specificity per class  (TP của class khác / tổng negative thực sự)
   - Confusion Matrix
-  - Classification Report Ä‘áº§y Ä‘á»§
+  - ROC-AUC (macro)
+  - Model size (params)
+  - VRAM thực tế (nếu CUDA)
 """
 
 from __future__ import annotations
 
 import os
+import time
+from typing import Dict, List
 
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from sklearn.metrics import (
     accuracy_score,
+    classification_report,
+    confusion_matrix,
+    roc_auc_score,
     f1_score,
     precision_score,
     recall_score,
-    roc_auc_score,
-    confusion_matrix,
-    classification_report,
 )
-from tqdm import tqdm
 
 
-# ---------------------------------------------------------------------------
-# Inference helper
-# ---------------------------------------------------------------------------
+# ============================================================================
+# Medical metrics: Sensitivity & Specificity
+# ============================================================================
 
-@torch.no_grad()
-def get_predictions(
-    model: nn.Module,
-    loader: DataLoader,
-    device: torch.device,
-    n_classes: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def compute_sensitivity_specificity(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    class_names: List[str],
+) -> Dict[str, Dict[str, float]]:
     """
-    Cháº¡y inference trÃªn toÃ n bá»™ loader.
+    Tính Sensitivity và Specificity cho từng class theo OvR (One vs Rest).
 
-    Returns
-    -------
-    y_true   : shape (N,)        â€“ nhÃ£n thá»±c
-    y_pred   : shape (N,)        â€“ nhÃ£n dá»± Ä‘oÃ¡n
-    y_proba  : shape (N, C)      â€“ xÃ¡c suáº¥t softmax cho tá»«ng class
+    Sensitivity (Độ nhạy) = TP / (TP + FN)
+        → Khả năng phát hiện đúng ca dương tính (quan trọng trong y tế
+          để không bỏ sót bệnh).
+
+    Specificity (Độ đặc hiệu) = TN / (TN + FP)
+        → Khả năng xác nhận đúng ca âm tính (tránh chẩn đoán nhầm).
+
+    Returns dict: { class_name: { "sensitivity": float, "specificity": float } }
     """
-    model.eval()
-    model = model.to(device)
+    cm = confusion_matrix(y_true, y_pred)
+    n_classes = len(class_names)
+    results = {}
 
-    all_labels: list[int] = []
-    all_preds:  list[int] = []
-    all_proba:  list[np.ndarray] = []
+    for i, cname in enumerate(class_names):
+        tp = cm[i, i]
+        fn = cm[i, :].sum() - tp          # false negatives
+        fp = cm[:, i].sum() - tp          # false positives
+        tn = cm.sum() - tp - fn - fp      # true negatives
 
-    for images, labels in tqdm(loader, desc="  Inference", ncols=80, leave=False):
-        images = images.to(device, non_blocking=True)
+        sensitivity = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        specificity = tn / (tn + fp) if (tn + fp) > 0 else 0.0
 
-        logits = model(images)                          # (B, C)
-        proba  = F.softmax(logits, dim=1).cpu().numpy() # (B, C)
-        preds  = logits.argmax(dim=1).cpu().numpy()     # (B,)
+        results[cname] = {
+            "sensitivity": round(float(sensitivity), 4),
+            "specificity": round(float(specificity), 4),
+        }
 
-        all_proba.append(proba)
-        all_preds.extend(preds.tolist())
-        all_labels.extend(labels.tolist())
-
-    y_true  = np.array(all_labels)
-    y_pred  = np.array(all_preds)
-    y_proba = np.vstack(all_proba)
-
-    return y_true, y_pred, y_proba
+    return results
 
 
-# ---------------------------------------------------------------------------
-# Full evaluation
-# ---------------------------------------------------------------------------
+# ============================================================================
+# Model size & VRAM helpers
+# ============================================================================
+
+def get_model_info(model: nn.Module) -> Dict[str, int]:
+    """Trả về số params tổng và trainable."""
+    total     = sum(p.numel() for p in model.parameters())
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    return {"total_params": total, "trainable_params": trainable}
+
+
+def get_vram_mb() -> float:
+    """VRAM thực tế đang dùng (MB). Trả về 0 nếu không có CUDA."""
+    if torch.cuda.is_available():
+        return torch.cuda.memory_allocated() / 1e6
+    return 0.0
+
+
+# ============================================================================
+# Main evaluate function
+# ============================================================================
 
 def evaluate_model(
     model: nn.Module,
     test_loader: DataLoader,
-    class_names: list[str],
+    class_names: List[str],
     device: torch.device,
-    output_dir: str = "outputs",
+    output_dir: str = "./outputs",
     model_name: str = "model",
-) -> dict:
+) -> Dict:
     """
-    ÄÃ¡nh giÃ¡ mÃ´ hÃ¬nh vÃ  in report toÃ n diá»‡n.
-
-    Parameters
-    ----------
-    model : nn.Module
-        Model Ä‘Ã£ Ä‘Æ°á»£c load best weights.
-    test_loader : DataLoader
-    class_names : list[str]
-    device : torch.device
-    output_dir : str
-        ThÆ° má»¥c lÆ°u numpy arrays (Ä‘á»ƒ váº½ biá»ƒu Ä‘á»“ sau).
-    model_name : str
+    Chạy inference trên test set và tính đầy đủ metrics.
 
     Returns
     -------
-    metrics : dict
-        Chá»©a táº¥t cáº£ chá»‰ sá»‘ Ä‘Ã¡nh giÃ¡.
+    dict với keys:
+        y_true, y_pred, y_proba,
+        accuracy, f1, precision, recall,
+        sensitivity_specificity,
+        report, model_info, inference_time_ms, vram_mb
     """
     os.makedirs(output_dir, exist_ok=True)
-    n_classes = len(class_names)
+    model.to(device)
+    model.eval()
 
-    print(f"\n{'='*60}")
-    print(f"  ÄÃ¡nh giÃ¡: {model_name.upper()} trÃªn táº­p TEST")
-    print(f"{'='*60}")
+    y_true, y_pred, y_proba = [], [], []
 
-    y_true, y_pred, y_proba = get_predictions(model, test_loader, device, n_classes)
+    # Reset VRAM peak counter trước khi đo
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats(device)
 
-    # â”€â”€ CÃ¡c chá»‰ sá»‘ cÆ¡ báº£n â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    t_start = time.time()
+    with torch.no_grad():
+        for images, labels in test_loader:
+            images = images.to(device)
+            outputs = model(images)
+            probs   = torch.softmax(outputs, dim=1)
+
+            y_true.extend(labels.cpu().tolist())
+            y_pred.extend(outputs.argmax(1).cpu().tolist())
+            y_proba.extend(probs.cpu().tolist())
+
+    inference_time_ms = (time.time() - t_start) * 1000 / len(test_loader.dataset)
+
+    # VRAM peak trong suốt inference
+    vram_mb = torch.cuda.max_memory_allocated(device) / 1e6 if torch.cuda.is_available() else 0.0
+
+    y_true  = np.array(y_true)
+    y_pred  = np.array(y_pred)
+    y_proba = np.array(y_proba)
+
     acc       = accuracy_score(y_true, y_pred)
-    f1_macro  = f1_score(y_true, y_pred, average="macro",    zero_division=0)
-    f1_weight = f1_score(y_true, y_pred, average="weighted", zero_division=0)
-    prec_macro= precision_score(y_true, y_pred, average="macro",    zero_division=0)
-    rec_macro = recall_score(y_true, y_pred,    average="macro",    zero_division=0)
+    f1        = f1_score(y_true, y_pred, average="macro", zero_division=0)
+    precision = precision_score(y_true, y_pred, average="macro", zero_division=0)
+    recall    = recall_score(y_true, y_pred, average="macro", zero_division=0)
 
-    # â”€â”€ AUC-ROC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     try:
-        if n_classes == 2:
-            auc = roc_auc_score(y_true, y_proba[:, 1])
-        else:
-            auc = roc_auc_score(
-                y_true, y_proba,
-                multi_class="ovr",
-                average="macro",
-            )
-    except ValueError:
+        auc = roc_auc_score(y_true, y_proba, multi_class="ovr", average="macro")
+    except Exception:
         auc = float("nan")
-        print("  âš  KhÃ´ng Ä‘á»§ dá»¯ liá»‡u Ä‘á»ƒ tÃ­nh AUC-ROC.")
 
-    # â”€â”€ Confusion Matrix â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    cm = confusion_matrix(y_true, y_pred)
-
-    # â”€â”€ Classification Report â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     report = classification_report(
-        y_true, y_pred,
-        target_names=class_names,
-        zero_division=0,
+        y_true, y_pred, target_names=class_names, zero_division=0
     )
 
-    # â”€â”€ In káº¿t quáº£ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    print(f"\n  Accuracy        : {acc:.4f}")
-    print(f"  F1-Macro        : {f1_macro:.4f}")
-    print(f"  F1-Weighted     : {f1_weight:.4f}")
-    print(f"  Precision-Macro : {prec_macro:.4f}")
-    print(f"  Recall-Macro    : {rec_macro:.4f}")
-    print(f"  AUC-ROC         : {auc:.4f}")
-    print(f"\n  Confusion Matrix:\n{cm}")
-    print(f"\n  Classification Report:\n{report}")
+    sens_spec = compute_sensitivity_specificity(y_true, y_pred, class_names)
+    model_info = get_model_info(model)
 
-    # â”€â”€ LÆ°u arrays Ä‘á»ƒ váº½ ROC curve vÃ  Confusion Matrix â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    np.save(os.path.join(output_dir, f"{model_name}_y_true.npy"), y_true)
-    np.save(os.path.join(output_dir, f"{model_name}_y_pred.npy"), y_pred)
-    np.save(os.path.join(output_dir, f"{model_name}_y_proba.npy"), y_proba)
+    # ── In kết quả ──────────────────────────────────────────────────────────
+    print(f"\n{'='*55}")
+    print(f"  {model_name.upper()} — Test Results")
+    print(f"{'='*55}")
+    print(f"  Accuracy  : {acc:.4f}")
+    print(f"  F1 (macro): {f1:.4f}")
+    print(f"  Precision : {precision:.4f}")
+    print(f"  Recall    : {recall:.4f}")
+    print(f"  ROC-AUC   : {auc:.4f}")
+    print(f"\n  Per-class Sensitivity & Specificity:")
+    for cname, vals in sens_spec.items():
+        print(f"    {cname:20s}  Sens={vals['sensitivity']:.4f}  Spec={vals['specificity']:.4f}")
+    print(f"\n  Model params  : {model_info['total_params']:,}")
+    print(f"  VRAM peak     : {vram_mb:.1f} MB")
+    print(f"  Inference     : {inference_time_ms:.2f} ms/image")
+    print(f"\n{report}")
 
-    metrics = {
-        "accuracy":         acc,
-        "f1_macro":         f1_macro,
-        "f1_weighted":      f1_weight,
-        "precision_macro":  prec_macro,
-        "recall_macro":     rec_macro,
-        "auc_roc":          auc,
-        "confusion_matrix": cm,
-        "classification_report": report,
-        "y_true":  y_true,
-        "y_pred":  y_pred,
-        "y_proba": y_proba,
+    return {
+        "y_true":   y_true,
+        "y_pred":   y_pred,
+        "y_proba":  y_proba,
+        "accuracy": acc,
+        "f1":       f1,
+        "precision": precision,
+        "recall":   recall,
+        "auc":      auc,
+        "sensitivity_specificity": sens_spec,
+        "report":   report,
+        "model_info": model_info,
+        "inference_time_ms": inference_time_ms,
+        "vram_mb":  vram_mb,
     }
 
-    return metrics
 
-
-# ---------------------------------------------------------------------------
-# Comparison utility
-# ---------------------------------------------------------------------------
-
-def compare_models(
-    metrics_by_model: dict[str, dict],
-    metric_keys: list[str] | None = None,
-) -> None:
-    """Print a comparison table for two or more models."""
-    if metric_keys is None:
-        metric_keys = ["accuracy", "f1_macro", "f1_weighted", "recall_macro", "auc_roc"]
-
-    labels = {
-        "accuracy": "Accuracy",
-        "f1_macro": "F1-Macro",
-        "f1_weighted": "F1-Weighted",
-        "precision_macro": "Precision-Macro",
-        "recall_macro": "Recall-Macro",
-        "auc_roc": "AUC-ROC",
-    }
-
-    model_names = list(metrics_by_model.keys())
-    name_width = max(12, max(len(name) for name in model_names))
-    table_width = 22 + (name_width + 2) * len(model_names)
-
-    print(f"\n{'=' * table_width}")
+def compare_models(metrics_by_model: Dict[str, Dict]) -> None:
+    """In bảng so sánh tổng hợp các model."""
+    print(f"\n{'='*80}")
     print("  MODEL COMPARISON")
-    header = f"  {'Metric':<20}" + "".join(
-        f"{name:>{name_width + 2}}" for name in model_names
-    )
+    print(f"{'='*80}")
+    header = f"  {'Model':<18} {'Acc':>7} {'F1':>7} {'AUC':>7} {'Params':>12} {'VRAM(MB)':>10} {'ms/img':>8}"
     print(header)
-    print(f"  {'-' * (table_width - 4)}")
+    print("  " + "-" * 76)
 
-    for key in metric_keys:
-        row_values = [metrics_by_model[name].get(key, float("nan")) for name in model_names]
-        best_value = np.nanmax(row_values)
-        row = f"  {labels.get(key, key):<20}"
-        for value in row_values:
-            marker = "*" if np.isfinite(value) and value == best_value else " "
-            row += f"{value:>{name_width + 1}.4f}{marker}"
-        print(row)
-
-    print(f"{'=' * table_width}\n")
+    for name, m in metrics_by_model.items():
+        params = m["model_info"]["total_params"]
+        print(
+            f"  {name:<18} "
+            f"{m['accuracy']:>7.4f} "
+            f"{m['f1']:>7.4f} "
+            f"{m['auc']:>7.4f} "
+            f"{params:>12,} "
+            f"{m['vram_mb']:>10.1f} "
+            f"{m['inference_time_ms']:>8.2f}"
+        )
+    print(f"{'='*80}\n")
