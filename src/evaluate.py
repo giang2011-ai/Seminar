@@ -1,11 +1,11 @@
-"""
+﻿"""
 evaluate.py
 -----------
-Đánh giá mô hình trên tập test với các thang đo:
+ÄÃ¡nh giÃ¡ mÃ´ hÃ¬nh trÃªn táº­p test vá»›i cÃ¡c thang Ä‘o:
   - Accuracy, F1 (Macro & Weighted), Precision, Recall
   - AUC-ROC (OvR, macro)
   - Confusion Matrix
-  - Classification Report đầy đủ
+  - Classification Report Ä‘áº§y Ä‘á»§
 """
 
 from __future__ import annotations
@@ -41,13 +41,13 @@ def get_predictions(
     n_classes: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Chạy inference trên toàn bộ loader.
+    Cháº¡y inference trÃªn toÃ n bá»™ loader.
 
     Returns
     -------
-    y_true   : shape (N,)        – nhãn thực
-    y_pred   : shape (N,)        – nhãn dự đoán
-    y_proba  : shape (N, C)      – xác suất softmax cho từng class
+    y_true   : shape (N,)        â€“ nhÃ£n thá»±c
+    y_pred   : shape (N,)        â€“ nhÃ£n dá»± Ä‘oÃ¡n
+    y_proba  : shape (N, C)      â€“ xÃ¡c suáº¥t softmax cho tá»«ng class
     """
     model.eval()
     model = model.to(device)
@@ -87,41 +87,41 @@ def evaluate_model(
     model_name: str = "model",
 ) -> dict:
     """
-    Đánh giá mô hình và in report toàn diện.
+    ÄÃ¡nh giÃ¡ mÃ´ hÃ¬nh vÃ  in report toÃ n diá»‡n.
 
     Parameters
     ----------
     model : nn.Module
-        Model đã được load best weights.
+        Model Ä‘Ã£ Ä‘Æ°á»£c load best weights.
     test_loader : DataLoader
     class_names : list[str]
     device : torch.device
     output_dir : str
-        Thư mục lưu numpy arrays (để vẽ biểu đồ sau).
+        ThÆ° má»¥c lÆ°u numpy arrays (Ä‘á»ƒ váº½ biá»ƒu Ä‘á»“ sau).
     model_name : str
 
     Returns
     -------
     metrics : dict
-        Chứa tất cả chỉ số đánh giá.
+        Chá»©a táº¥t cáº£ chá»‰ sá»‘ Ä‘Ã¡nh giÃ¡.
     """
     os.makedirs(output_dir, exist_ok=True)
     n_classes = len(class_names)
 
     print(f"\n{'='*60}")
-    print(f"  Đánh giá: {model_name.upper()} trên tập TEST")
+    print(f"  ÄÃ¡nh giÃ¡: {model_name.upper()} trÃªn táº­p TEST")
     print(f"{'='*60}")
 
     y_true, y_pred, y_proba = get_predictions(model, test_loader, device, n_classes)
 
-    # ── Các chỉ số cơ bản ────────────────────────────────────────────────
+    # â”€â”€ CÃ¡c chá»‰ sá»‘ cÆ¡ báº£n â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     acc       = accuracy_score(y_true, y_pred)
     f1_macro  = f1_score(y_true, y_pred, average="macro",    zero_division=0)
     f1_weight = f1_score(y_true, y_pred, average="weighted", zero_division=0)
     prec_macro= precision_score(y_true, y_pred, average="macro",    zero_division=0)
     rec_macro = recall_score(y_true, y_pred,    average="macro",    zero_division=0)
 
-    # ── AUC-ROC ───────────────────────────────────────────────────────────
+    # â”€â”€ AUC-ROC â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     try:
         if n_classes == 2:
             auc = roc_auc_score(y_true, y_proba[:, 1])
@@ -133,19 +133,19 @@ def evaluate_model(
             )
     except ValueError:
         auc = float("nan")
-        print("  ⚠ Không đủ dữ liệu để tính AUC-ROC.")
+        print("  âš  KhÃ´ng Ä‘á»§ dá»¯ liá»‡u Ä‘á»ƒ tÃ­nh AUC-ROC.")
 
-    # ── Confusion Matrix ──────────────────────────────────────────────────
+    # â”€â”€ Confusion Matrix â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     cm = confusion_matrix(y_true, y_pred)
 
-    # ── Classification Report ─────────────────────────────────────────────
+    # â”€â”€ Classification Report â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     report = classification_report(
         y_true, y_pred,
         target_names=class_names,
         zero_division=0,
     )
 
-    # ── In kết quả ───────────────────────────────────────────────────────
+    # â”€â”€ In káº¿t quáº£ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     print(f"\n  Accuracy        : {acc:.4f}")
     print(f"  F1-Macro        : {f1_macro:.4f}")
     print(f"  F1-Weighted     : {f1_weight:.4f}")
@@ -155,7 +155,7 @@ def evaluate_model(
     print(f"\n  Confusion Matrix:\n{cm}")
     print(f"\n  Classification Report:\n{report}")
 
-    # ── Lưu arrays để vẽ ROC curve và Confusion Matrix ───────────────────
+    # â”€â”€ LÆ°u arrays Ä‘á»ƒ váº½ ROC curve vÃ  Confusion Matrix â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     np.save(os.path.join(output_dir, f"{model_name}_y_true.npy"), y_true)
     np.save(os.path.join(output_dir, f"{model_name}_y_pred.npy"), y_pred)
     np.save(os.path.join(output_dir, f"{model_name}_y_proba.npy"), y_proba)
@@ -182,28 +182,41 @@ def evaluate_model(
 # ---------------------------------------------------------------------------
 
 def compare_models(
-    metrics_resnet: dict,
-    metrics_vit: dict,
+    metrics_by_model: dict[str, dict],
+    metric_keys: list[str] | None = None,
 ) -> None:
-    """
-    In bảng so sánh hai mô hình cạnh nhau.
-    """
-    keys = ["accuracy", "f1_macro", "f1_weighted", "recall_macro", "auc_roc"]
+    """Print a comparison table for two or more models."""
+    if metric_keys is None:
+        metric_keys = ["accuracy", "f1_macro", "f1_weighted", "recall_macro", "auc_roc"]
+
     labels = {
-        "accuracy":     "Accuracy",
-        "f1_macro":     "F1-Macro",
-        "f1_weighted":  "F1-Weighted",
+        "accuracy": "Accuracy",
+        "f1_macro": "F1-Macro",
+        "f1_weighted": "F1-Weighted",
+        "precision_macro": "Precision-Macro",
         "recall_macro": "Recall-Macro",
-        "auc_roc":      "AUC-ROC",
+        "auc_roc": "AUC-ROC",
     }
 
-    print(f"\n{'='*60}")
-    print("  SO SÁNH: ResNet-50 vs ViT-B/16")
-    print(f"  {'Metric':<20} {'ResNet-50':>12} {'ViT-B/16':>12}")
-    print(f"  {'-'*44}")
-    for k in keys:
-        r_val = metrics_resnet.get(k, float("nan"))
-        v_val = metrics_vit.get(k, float("nan"))
-        better = "↑" if v_val >= r_val else " "
-        print(f"  {labels[k]:<20} {r_val:>12.4f} {v_val:>12.4f} {better}")
-    print(f"{'='*60}\n")
+    model_names = list(metrics_by_model.keys())
+    name_width = max(12, max(len(name) for name in model_names))
+    table_width = 22 + (name_width + 2) * len(model_names)
+
+    print(f"\n{'=' * table_width}")
+    print("  MODEL COMPARISON")
+    header = f"  {'Metric':<20}" + "".join(
+        f"{name:>{name_width + 2}}" for name in model_names
+    )
+    print(header)
+    print(f"  {'-' * (table_width - 4)}")
+
+    for key in metric_keys:
+        row_values = [metrics_by_model[name].get(key, float("nan")) for name in model_names]
+        best_value = np.nanmax(row_values)
+        row = f"  {labels.get(key, key):<20}"
+        for value in row_values:
+            marker = "*" if np.isfinite(value) and value == best_value else " "
+            row += f"{value:>{name_width + 1}.4f}{marker}"
+        print(row)
+
+    print(f"{'=' * table_width}\n")

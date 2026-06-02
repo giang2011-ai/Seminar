@@ -1,22 +1,22 @@
 """
-src/models/__init__.py
-----------------------
-Factory function – gom ResNet-50 và ConvNeXt-Tiny.
+Model factory for ResNet-50, ConvNeXt-Tiny and ViT.
 """
 
 from __future__ import annotations
 
 import torch.nn as nn
 
-from src.models.resnet   import ResNet50Classifier
 from src.models.convnext import ConvNeXtTiny
+from src.models.resnet import ResNet50Classifier
+from src.models.vit import VisionTransformerClassifier
 
-SUPPORTED_MODELS = {"resnet50", "convnext"}
+SUPPORTED_MODELS = {"resnet50", "convnext", "vit"}
 
 
 def build_model(
     model_name: str,
     n_classes: int,
+    img_size: int = 224,
     dropout: float = 0.3,
     drop_path_rate: float = 0.1,
 ) -> nn.Module:
@@ -27,7 +27,7 @@ def build_model(
             n_classes=n_classes,
             dropout=dropout,
         )
-        print(f"[Model] ResNet-50 (tự cài đặt) | n_classes={n_classes}")
+        print(f"[Model] ResNet-50 | n_classes={n_classes}")
 
     elif name == "convnext":
         model = ConvNeXtTiny(
@@ -35,15 +35,26 @@ def build_model(
             dropout=dropout,
             drop_path_rate=drop_path_rate,
         )
-        print(f"[Model] ConvNeXt-Tiny (tự cài đặt) | n_classes={n_classes} | drop_path={drop_path_rate}")
+        print(
+            f"[Model] ConvNeXt-Tiny | n_classes={n_classes} "
+            f"| drop_path={drop_path_rate}"
+        )
+
+    elif name == "vit":
+        model = VisionTransformerClassifier(
+            n_classes=n_classes,
+            img_size=img_size,
+            dropout=dropout,
+        )
+        print(f"[Model] ViT-Tiny/16 | n_classes={n_classes} | img_size={img_size}")
 
     else:
         raise ValueError(
-            f"model_name phải thuộc {SUPPORTED_MODELS}, nhận được: '{model_name}'"
+            f"model_name must be one of {SUPPORTED_MODELS}, got: '{model_name}'"
         )
 
-    total     = sum(p.numel() for p in model.parameters())
+    total = sum(p.numel() for p in model.parameters())
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"[Model] Tổng params: {total:,} | Trainable: {trainable:,}")
+    print(f"[Model] Total params: {total:,} | Trainable: {trainable:,}")
 
     return model
