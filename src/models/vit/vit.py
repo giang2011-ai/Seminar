@@ -1,15 +1,43 @@
 """
-Vision Transformer classifier.
+Vision Transformer Small (ViT-S/16) classifier.
 
-This is a compact ViT implementation for image classification. It follows the
+This is a ViT-Small implementation for image classification. It follows the
 standard ViT pipeline: patch embedding, class token, positional embedding,
 Transformer encoder blocks, then a classification head.
+
+ViT-Small/16 config:
+  - patch size  : 16
+  - embedding dim: 384
+  - depth       : 12
+  - heads       : 6
+  - MLP ratio   : 4.0
 """
 
 from __future__ import annotations
 
 import torch
 import torch.nn as nn
+
+
+class DropPath(nn.Module):
+    """
+    Stochastic Depth (Drop Path) — tắt ngẫu nhiên toàn bộ residual branch
+    theo từng sample trong batch. Giúp regularize ViT sâu hiệu quả hơn Dropout thông thường.
+    """
+
+    def __init__(self, drop_prob: float = 0.0):
+        super().__init__()
+        self.drop_prob = drop_prob
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if not self.training or self.drop_prob == 0.0:
+            return x
+        keep_prob = 1 - self.drop_prob
+        # (B, 1, 1) để broadcast trên toàn sequence
+        shape = (x.shape[0],) + (1,) * (x.ndim - 1)
+        random_tensor = torch.rand(shape, dtype=x.dtype, device=x.device)
+        random_tensor = torch.floor(random_tensor + keep_prob)
+        return x * random_tensor / keep_prob
 
 
 class PatchEmbedding(nn.Module):
@@ -20,7 +48,7 @@ class PatchEmbedding(nn.Module):
         img_size: int = 224,
         patch_size: int = 16,
         in_channels: int = 3,
-        embed_dim: int = 192,
+        embed_dim: int = 384,
     ):
         super().__init__()
         if img_size % patch_size != 0:
@@ -60,14 +88,15 @@ class MLP(nn.Module):
 
 
 class TransformerEncoderBlock(nn.Module):
-    """Pre-norm Transformer encoder block."""
+    """Pre-norm Transformer encoder block với Stochastic Depth."""
 
     def __init__(
         self,
         dim: int,
         num_heads: int,
         mlp_ratio: float = 4.0,
-        dropout: float = 0.1,
+        dropout: float = 0.2,
+        drop_path: float = 0.1,  # Stochastic Depth rate
     ):
         super().__init__()
         self.norm1 = nn.LayerNorm(dim)
@@ -77,26 +106,33 @@ class TransformerEncoderBlock(nn.Module):
             dropout=dropout,
             batch_first=True,
         )
-        self.drop1 = nn.Dropout(dropout)
+        self.drop_path1 = DropPath(drop_path)
         self.norm2 = nn.LayerNorm(dim)
         self.mlp = MLP(dim, int(dim * mlp_ratio), dropout)
+        self.drop_path2 = DropPath(drop_path)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         attn_out, _ = self.attn(self.norm1(x), self.norm1(x), self.norm1(x), need_weights=False)
-        x = x + self.drop1(attn_out)
-        x = x + self.mlp(self.norm2(x))
+        x = x + self.drop_path1(attn_out)
+        x = x + self.drop_path2(self.mlp(self.norm2(x)))
         return x
 
 
 class VisionTransformerClassifier(nn.Module):
     """
-    Compact ViT classifier.
+    ViT-Small/16 classifier.
 
-    Default config is ViT-Tiny/16 style:
-      - patch size: 16
-      - embedding dim: 192
-      - depth: 12
-      - heads: 3
+    Standard ViT-Small config:
+      - patch size  : 16
+      - embedding dim: 384
+      - depth       : 12
+      - heads       : 6
+      - MLP ratio   : 4.0
+      - params      : ~22 M
+
+    Regularization:
+      - dropout     : 0.2  (tăng từ 0.1)
+      - drop_path   : stochastic depth tăng dần theo depth (0 → drop_path_rate)
     """
 
     def __init__(
@@ -104,11 +140,12 @@ class VisionTransformerClassifier(nn.Module):
         n_classes: int = 2,
         img_size: int = 224,
         patch_size: int = 16,
-        embed_dim: int = 192,
+        embed_dim: int = 384,
         depth: int = 12,
-        num_heads: int = 3,
+        num_heads: int = 6,
         mlp_ratio: float = 4.0,
-        dropout: float = 0.1,
+        dropout: float = 0.2,         # Tăng từ 0.1 → 0.2
+        drop_path_rate: float = 0.1,  # Stochastic Depth tăng dần theo layer
     ):
         super().__init__()
         self.n_classes = n_classes
@@ -124,14 +161,19 @@ class VisionTransformerClassifier(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
         self.pos_drop = nn.Dropout(dropout)
 
+        # Drop path rate tăng dần từ 0 → drop_path_rate theo từng layer
+        # Layer đầu ít bị drop hơn, layer cuối bị drop nhiều hơn
+        dpr = [drop_path_rate * i / (depth - 1) for i in range(depth)]
+
         self.blocks = nn.Sequential(*[
             TransformerEncoderBlock(
                 dim=embed_dim,
                 num_heads=num_heads,
                 mlp_ratio=mlp_ratio,
                 dropout=dropout,
+                drop_path=dpr[i],
             )
-            for _ in range(depth)
+            for i in range(depth)
         ])
 
         self.norm = nn.LayerNorm(embed_dim)

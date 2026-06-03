@@ -269,7 +269,7 @@ class ConvNeXtTiny(nn.Module):
         self,
         n_classes: int = 2,
         dropout: float = 0.3,
-        drop_path_rate: float = 0.1,
+        drop_path_rate: float = 0.2,   # Tăng từ 0.1 → regularize mạnh hơn
     ):
         super().__init__()
         self.n_classes = n_classes
